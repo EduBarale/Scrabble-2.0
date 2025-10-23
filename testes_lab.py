@@ -30,6 +30,14 @@ ocorrencias_saco = {
     'U': 7, 'V': 2, 'X': 1, 'Z': 1
 }
 
+# Tabela 1: Pontuação das letras
+pontuacao_letras = {
+    'A': 1, 'B': 3, 'C': 2, 'Ç': 3, 'D': 2, 'E': 1, 'F': 4,
+    'G': 4, 'H': 4, 'I': 1, 'J': 5, 'L': 2, 'M': 1, 'N': 3,
+    'O': 1, 'P': 2, 'Q': 6, 'R': 1, 'S': 1, 'T': 1,
+    'U': 1, 'V': 4, 'X': 8, 'Z': 8
+}
+
 
 # ==================== GERADOR PSEUDO-ALEATÓRIO ====================
 
@@ -290,9 +298,18 @@ def jogador_para_str(j: dict) -> str:
     pontos = jogador_pontos(j)
     letras_str = jogador_letras(j)
     
-    letras_formatadas = ' '.join(letras_str)
-    
-    return f"{identidade} ({pontos:3d}): {letras_formatadas}"
+    if letras_str:
+        letras_formatadas = ' '.join(letras_str)
+        if eh_agente(j):
+            return f"BOT({identidade}) ({pontos:3d}): {letras_formatadas}"
+        else:
+            return f"{identidade} ({pontos:3d}): {letras_formatadas}"
+    else:
+        # Sem letras - sem espaço no final
+        if eh_agente(j):
+            return f"BOT({identidade}) ({pontos:3d}):"
+        else:
+            return f"{identidade} ({pontos:3d}):"
 
 
 def distribui_letras(jog: dict, saco: list, num: int) -> dict:
@@ -355,7 +372,7 @@ def cria_vocabulario(t: tuple) -> dict:
     
     for comp in vocab:
         for letra in vocab[comp]:
-            vocab[comp][letra].sort()
+            vocab[comp][letra].sort(key=lambda p: tuple(letras.index(c) for c in p))
     
     return vocab
 
@@ -374,7 +391,7 @@ def obtem_pontos(vocabulario: dict, palavra: str) -> int:
         return 0
     
     if palavra in vocabulario[comp][primeira]:
-        return comp
+        return sum(pontuacao_letras.get(letra, 0) for letra in palavra)
     
     return 0
 
@@ -382,13 +399,23 @@ def obtem_pontos(vocabulario: dict, palavra: str) -> int:
 def obtem_palavras(vocabulario: dict, comp: int, letra: str) -> tuple:
     """
     Seletor: Devolve um tuplo de pares que correspondem a todas as palavras
-    com comprimento comp e primeira letra letra.
+    com comprimento comp e primeira letra letra. Ordenado por pontuação decrescente,
+    depois por ordem lexicográfica canónica.
     """
     if comp not in vocabulario or letra not in vocabulario[comp]:
         return ()
     
     palavras = vocabulario[comp][letra]
-    return tuple((p, len(p)) for p in palavras)
+    pares = [(p, obtem_pontos(vocabulario, p)) for p in palavras]
+    
+    # Função auxiliar para converter palavra para chave de ordenação canónica
+    def chave_canonica(palavra):
+        return tuple(letras.index(c) for c in palavra)
+    
+    # Ordena por pontuação decrescente, depois por ordem canónica
+    pares.sort(key=lambda x: (-x[1], chave_canonica(x[0])))
+    
+    return tuple(pares)
 
 
 def testa_palavra_padrao(vocabulario: dict, palavra: str, padrao: str, letras_disp: str) -> bool:
@@ -461,6 +488,8 @@ def vocabulario_para_str(vocabulario: dict) -> str:
     """
     Transformador: Devolve uma cadeia de caracteres que concatena
     todas as palavras guardadas no vocabulário, separadas por mudança de linha.
+    Ordenadas por comprimento crescente, depois por primeira letra (ordem canónica),
+    depois por ordem lexicográfica da palavra completa.
     """
     resultado = []
     
@@ -470,6 +499,7 @@ def vocabulario_para_str(vocabulario: dict) -> str:
         primeiras = sorted(vocabulario[comp].keys(), key=lambda l: letras.index(l))
         
         for letra in primeiras:
+            # Já estão ordenadas lexicograficamente
             for palavra in vocabulario[comp][letra]:
                 resultado.append(palavra)
     
@@ -479,8 +509,7 @@ def vocabulario_para_str(vocabulario: dict) -> str:
 def procura_palavra_padrao(vocabulario: dict, padrao: str, letras_disp: str, min_pontos: int) -> tuple:
     """
     Função de alto nível: Devolve o tuplo formado pela palavra e a pontuação,
-    que correspondem à palavra do vocabulário com maior pontuação que é possível
-    formar utilizando as letras da cadeia de caracteres letras_disp.
+    que correspondem à palavra do vocabulário com maior pontuação.
     """
     comp = len(padrao)
     melhor_palavra = ''
@@ -494,10 +523,9 @@ def procura_palavra_padrao(vocabulario: dict, padrao: str, letras_disp: str, min
                 if testa_palavra_padrao(vocabulario, palavra, padrao, letras_disp):
                     pontuacao = obtem_pontos(vocabulario, palavra)
                     
-                    if pontuacao >= min_pontos:
-                        if pontuacao > melhor_pontuacao:
-                            melhor_pontuacao = pontuacao
-                            melhor_palavra = palavra
+                    if pontuacao >= min_pontos and pontuacao > melhor_pontuacao:
+                        melhor_pontuacao = pontuacao
+                        melhor_palavra = palavra
     else:
         letras_tentadas = sorted(set(letras_disp), key=lambda l: letras.index(l))
         
@@ -670,10 +698,11 @@ def insere_palavra(t: list, c: tuple, d: str, p: str) -> list:
     return t
 
 
-def obtem_subpadroes(t: list, i: tuple, f: tuple) -> tuple:
+def obtem_subpadroes(t: list, i: tuple, f: tuple, l: int) -> tuple:
     """
     Função de alto nível: Devolve dois tuplos de igual tamanho com os sub-padrões
-    viáveis e suas casas iniciais.
+    viáveis (com no máximo l espaços livres) e suas casas iniciais.
+    Ordem da matriz do enunciado: linha por linha (i=0 a n-1), coluna por coluna (j=n a i+1)
     """
     padrao = obtem_padrao(t, i, f)
     lin_i = obtem_lin(i)
@@ -691,9 +720,14 @@ def obtem_subpadroes(t: list, i: tuple, f: tuple) -> tuple:
     
     n = len(padrao)
     
+    # Ordem da matriz: linha por linha (i_sub fixo), j_sub de maior para menor
     for i_sub in range(n):
-        for j_sub in range(i_sub + 1, n + 1):
+        for j_sub in range(n, i_sub, -1):
             subpadrao = padrao[i_sub:j_sub]
+            
+            # Verifica número de espaços livres
+            if subpadrao.count('.') > l:
+                continue
             
             tem_letra = any(c != '.' for c in subpadrao)
             if not tem_letra:
@@ -733,27 +767,23 @@ def gera_todos_padroes(t: list, l: int) -> tuple:
         casa_inicio = cria_casa(lin, 1)
         casa_fim = cria_casa(lin, tamanho_tabuleiro)
         
-        subpadroes, casas = obtem_subpadroes(t, casa_inicio, casa_fim)
+        subpadroes, casas = obtem_subpadroes(t, casa_inicio, casa_fim, l)
         
-        for idx, subpadrao in enumerate(subpadroes):
-            num_espacos = subpadrao.count('.')
-            if num_espacos <= l:
-                todos_padroes.append(subpadrao)
-                todas_casas.append(casas[idx])
-                todas_direcoes.append('H')
+        for idx in range(len(subpadroes)):
+            todos_padroes.append(subpadroes[idx])
+            todas_casas.append(casas[idx])
+            todas_direcoes.append('H')
     
     for col in range(1, tamanho_tabuleiro + 1):
         casa_inicio = cria_casa(1, col)
         casa_fim = cria_casa(tamanho_tabuleiro, col)
         
-        subpadroes, casas = obtem_subpadroes(t, casa_inicio, casa_fim)
+        subpadroes, casas = obtem_subpadroes(t, casa_inicio, casa_fim, l)
         
-        for idx, subpadrao in enumerate(subpadroes):
-            num_espacos = subpadrao.count('.')
-            if num_espacos <= l:
-                todos_padroes.append(subpadrao)
-                todas_casas.append(casas[idx])
-                todas_direcoes.append('V')
+        for idx in range(len(subpadroes)):
+            todos_padroes.append(subpadroes[idx])
+            todas_casas.append(casas[idx])
+            todas_direcoes.append('V')
     
     return (tuple(todos_padroes), tuple(todas_casas), tuple(todas_direcoes))
 
@@ -1033,20 +1063,8 @@ def jogada_agente(tab: list, jog: dict, vocab: dict, pilha: list) -> bool:
 def scrabble2(jog: tuple, nome_fich: str, seed: int) -> tuple:
     """
     Função principal que permite jogar um jogo completo de Scrabble2 de dois 
-    a quatro jogadores. A função recebe um tuplo com nomes dos jogadores humanos 
-    (cadeia de caracteres não vazia) e o nível dos jogadores agentes (cadeia de 
-    caracteres a começar por '@' seguido do nível) na ordem em que jogam, um 
-    inteiro positivo representando o estado inicial do gerador pseudo-aleatório, 
-    e devolve um tuplo com a pontuação final obtida pelos jogadores em ordem.
-    
-    O jogo começa baralhando o saco de letras e distribuindo o conjunto de 7 letras 
-    a cada um dos jogadores em ordem. O jogo desenrola-se depois conforme as regras 
-    e como mostrado no exemplo a seguir. O jogo termina quando todos os jogadores 
-    passam ou quando um jogador fica sem letras e o saco estiver esgotado. A função 
-    deve verificar a validade dos seus argumentos, gerando um erro com a mensagem 
-    'scrabble2: argumentos inválidos'.
+    a quatro jogadores.
     """
-    # Validação de argumentos
     if not isinstance(jog, tuple) or not isinstance(nome_fich, str) or not isinstance(seed, int):
         raise ValueError('scrabble2: argumentos inválidos')
     
@@ -1056,7 +1074,6 @@ def scrabble2(jog: tuple, nome_fich: str, seed: int) -> tuple:
     if seed <= 0:
         raise ValueError('scrabble2: argumentos inválidos')
     
-    # Cria jogadores
     jogadores = []
     for info in jog:
         if not isinstance(info, str) or not info:
@@ -1070,16 +1087,13 @@ def scrabble2(jog: tuple, nome_fich: str, seed: int) -> tuple:
         else:
             jogadores.append(cria_humano(info))
     
-    # Carrega vocabulário
     vocab = ficheiro_para_vocabulario(nome_fich)
     
-    # Baralha saco e distribui letras iniciais
     pilha = baralha_saco(seed)
     
     for jogador in jogadores:
         distribui_letras(jogador, pilha, TAMANHO_MAO)
     
-    # Inicializa tabuleiro
     tab = cria_tabuleiro()
     
     print("Bem-vindo ao SCRABBLE2.")
@@ -1088,18 +1102,15 @@ def scrabble2(jog: tuple, nome_fich: str, seed: int) -> tuple:
     for jogador in jogadores:
         print(jogador_para_str(jogador))
     
-    # Loop principal do jogo
     passes_consecutivos = 0
     num_jogadores = len(jogadores)
     
     while passes_consecutivos < num_jogadores:
         for jogador in jogadores:
-            # Verifica condição de término
             if len(jogador_letras(jogador)) == 0 and len(pilha) == 0:
                 passes_consecutivos = num_jogadores
                 break
             
-            # Processa jogada
             if eh_humano(jogador):
                 jogou = jogada_humano(tab, jogador, vocab, pilha)
             else:
@@ -1120,5 +1131,4 @@ def scrabble2(jog: tuple, nome_fich: str, seed: int) -> tuple:
             if passes_consecutivos >= num_jogadores:
                 break
     
-    # Devolve pontuações finais
     return tuple(jogador_pontos(j) for j in jogadores)
