@@ -329,7 +329,6 @@ def distribui_letras(jog: dict, saco: list, num: int) -> dict:
 
 
 # ==================== TAD vocabulario ====================
-
 def cria_vocabulario(t: tuple) -> dict:
     """
     Construtor: Cria um vocabulário que contém as palavras do tuplo t.
@@ -354,11 +353,18 @@ def cria_vocabulario(t: tuple) -> dict:
         if palavra in palavras_vistas:
             raise ValueError('cria_vocabulario: argumento inválido')
         
-        palavras_vistas.add(palavra)
+        palavras_vistas.add(palavra)    
     
     vocab = {}
     
-    for palavra in palavras_vistas:
+    # Processa na ordem do tuplo original
+    palavras_vistas = set()
+    
+    for palavra in t:
+        if palavra in palavras_vistas:
+            continue
+        
+        palavras_vistas.add(palavra)
         comp = len(palavra)
         primeira = palavra[0]
         
@@ -370,11 +376,12 @@ def cria_vocabulario(t: tuple) -> dict:
         
         vocab[comp][primeira].append(palavra)
     
+    # Ordena usando ordem canónica
     for comp in vocab:
         for letra in vocab[comp]:
             vocab[comp][letra].sort(key=lambda p: tuple(letras.index(c) for c in p))
-    
-    return vocab
+
+    return vocab    
 
 
 def obtem_pontos(vocabulario: dict, palavra: str) -> int:
@@ -499,7 +506,6 @@ def vocabulario_para_str(vocabulario: dict) -> str:
         primeiras = sorted(vocabulario[comp].keys(), key=lambda l: letras.index(l))
         
         for letra in primeiras:
-            # Já estão ordenadas lexicograficamente
             for palavra in vocabulario[comp][letra]:
                 resultado.append(palavra)
     
